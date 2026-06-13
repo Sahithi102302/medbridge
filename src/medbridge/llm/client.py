@@ -182,18 +182,66 @@ Previous response:
         output = MedBridgeOutput(**data)
     except Exception as e:
         print(f"  Schema validation failed: {e}")
-        # create a minimal valid output rather than crashing
-        output = MedBridgeOutput(
-            summary=data.get("summary", "Analysis could not be completed."),
-            urgency_flags=data.get("urgency_flags", []),
-            medications=data.get("medications", []),
-            jargon=data.get("jargon", []),
-            questions=data.get("questions", [
-                "Please ask your doctor to explain this document.",
-            ]),
-            doc_type=doc_type,
-            overall_confidence=0.5,
-        )
+        # fix medications if they came back as strings instead of objects
+        if "medications" in data:
+            fixed_meds = []
+            for med in data["medications"]:
+                if isinstance(med, str):
+                    fixed_meds.append({
+                        "name": med,
+                        "brand_name": None,
+                        "purpose": f"{med} as mentioned in your document",
+                        "warning": None,
+                        "frequency": "as prescribed"
+                    })
+                elif isinstance(med, dict):
+                    fixed_meds.append(med)
+            data["medications"] = fixed_meds
+
+        # fix jargon if they came back as strings
+        if "jargon" in data:
+            fixed_jargon = []
+            for item in data["jargon"]:
+                if isinstance(item, str):
+                    fixed_jargon.append({
+                        "term": item,
+                        "explanation": f"{item} as mentioned in your document",
+                        "confidence": 0.7,
+                        "source_sentence": item
+                    })
+                elif isinstance(item, dict):
+                    fixed_jargon.append(item)
+            data["jargon"] = fixed_jargon
+
+        # fix urgency_flags if they came back as strings
+        if "urgency_flags" in data:
+            fixed_flags = []
+            for flag in data["urgency_flags"]:
+                if isinstance(flag, str):
+                    fixed_flags.append({
+                        "text": flag,
+                        "timeframe": "as directed",
+                        "severity": "routine"
+                    })
+                elif isinstance(flag, dict):
+                    fixed_flags.append(flag)
+            data["urgency_flags"] = fixed_flags
+
+        try:
+            output = MedBridgeOutput(**data)
+        except Exception as e2:
+            print(f"  Final fallback triggered: {e2}")
+            output = MedBridgeOutput(
+                summary=data.get("summary", "Analysis could not be completed."),
+                urgency_flags=[],
+                medications=[],
+                jargon=[],
+                questions=data.get("questions", [
+                    "Please ask your doctor to explain this document.",
+                ]),
+                doc_type=doc_type,
+                overall_confidence=0.5,
+            )
 
     return output
 
