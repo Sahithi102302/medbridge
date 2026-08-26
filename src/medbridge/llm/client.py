@@ -52,8 +52,8 @@ MODEL_NAME = "gemini-2.5-flash"
 
 # generation config — temperature 0 for consistent output
 GENERATION_CONFIG = genai.GenerationConfig(
-    temperature=0.0,        # deterministic output
-    max_output_tokens=3000, # enough for full structured response
+    temperature=0.0,
+    max_output_tokens=4000,
 )
 
 
