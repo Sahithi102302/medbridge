@@ -40,7 +40,7 @@ from typing import List, Dict
 
 # maximum tokens per chunk before we split further
 # gemini can handle more but this keeps responses focused
-MAX_TOKENS_PER_CHUNK = 3000
+MAX_TOKENS_PER_CHUNK = 6000
 
 # section headers commonly found in medical documents
 # order matters — more specific patterns first

@@ -53,7 +53,7 @@ MODEL_NAME = "gemini-2.5-flash"
 # generation config — temperature 0 for consistent output
 GENERATION_CONFIG = genai.GenerationConfig(
     temperature=0.0,
-    max_output_tokens=4000,
+    max_output_tokens=8192,
 )
 
 
@@ -190,11 +190,16 @@ Previous response:
                     fixed_meds.append({
                         "name": med,
                         "brand_name": None,
-                        "purpose": f"{med} as mentioned in your document",
+                        "purpose": "Purpose not specified",
                         "warning": None,
-                        "frequency": "as prescribed"
-                    })
+                        "frequency": "as prescribed"})
                 elif isinstance(med, dict):
+                    # fix None purpose 
+                    if not med.get("purpose"):
+                        med["purpose"] = "Purpose not specified"
+                        # fix None frequency
+                    if not med.get("frequency"):
+                        med["frequency"] = "as prescribed"
                     fixed_meds.append(med)
             data["medications"] = fixed_meds
 

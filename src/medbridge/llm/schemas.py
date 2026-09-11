@@ -60,7 +60,8 @@ class MedicationItem(BaseModel):
         description="Brand name if known e.g. Plavix"
     )
     purpose: str = Field(
-        description="What this drug does in plain English, one sentence"
+        default="Purpose not specified",
+        description="what this drug does in plain English sentence"
     )
     warning: Optional[str] = Field(
         default=None,

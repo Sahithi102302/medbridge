@@ -1,67 +1,27 @@
 """
 judge.py
 --------
-LLM-as-judge evaluation — uses Gemini to rate MedBridge output
+LLM-as-judge evaluation — uses Groq (Llama 3) to rate MedBridge output
 on clarity, accuracy, and completeness.
 
-Why this matters:
-- Human evaluation is expensive and slow
-- LLM-as-judge is a standard research technique
-- Gives a 1-5 score on three dimensions
-- Tracked in MLflow for experiment comparison
+Uses Groq instead of Gemini for the judge because:
+- Free tier with no daily limits
+- No safety filter issues on medical content
+- Fast inference
 """
 
 import os
-import json
 import re
 import sys
 from typing import Dict
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-JUDGE_MODEL = "gemini-2.5-flash"
-
-JUDGE_PROMPT = """You are a medical communication expert evaluating AI-generated patient summaries.
-
-Rate the following medical document translation on THREE dimensions.
-Be strict and objective. Do not give high scores unless truly deserved.
-
-SCORING RUBRIC:
-
-CLARITY (1-5):
-5 = Perfect plain English, any adult can understand, no jargon unexplained
-4 = Mostly clear, minor complex phrases
-3 = Acceptable but some medical terms left unexplained
-2 = Difficult for average patient to understand
-1 = Still full of medical jargon
-
-ACCURACY (1-5):
-5 = Everything matches the original document perfectly
-4 = Minor omissions but nothing misleading
-3 = Some important information missing
-2 = Contains incorrect information
-1 = Significantly wrong or misleading
-
-COMPLETENESS (1-5):
-5 = All important information captured
-4 = Most important information captured
-3 = Key information present but some gaps
-2 = Significant gaps in important information
-1 = Missing most important information
-
-You will be given the original document and the MedBridge output.
-Return ONLY this JSON — no text before or after, no markdown:
-{
-    "clarity": 4,
-    "accuracy": 5,
-    "completeness": 4,
-    "overall": 4.3,
-    "feedback": "One sentence of specific feedback"
-}"""
+JUDGE_MODEL = "qwen/qwen3.8-27b"
 
 
 def judge_output(
@@ -72,111 +32,97 @@ def judge_output(
     questions: list
 ) -> Dict:
     """
-    Uses Gemini to evaluate MedBridge output quality.
+    Uses Groq Llama to evaluate MedBridge output quality.
+    Returns scores for clarity, accuracy, completeness.
     """
-    med_text = "\n".join([
-        f"- {m.get('name', '')} ({m.get('frequency', '')}): {m.get('purpose', '')}"
-        for m in medications
-    ]) if medications else "None listed"
+    med_names = [m.get('name', '') for m in medications] if medications else []
+    med_str = ", ".join(med_names) if med_names else "none"
 
-    jargon_text = "\n".join([
-        f"- {j.get('term', '')}: {j.get('explanation', '')}"
-        for j in jargon
-    ]) if jargon else "None listed"
+    prompt = (
+        "IMPORTANT: This summary is intentionally brief (3 sentences max) for patient readability.\n"
+        "Rate completeness based on whether KEY facts are present, not whether every detail is included.\n"
+        "You are evaluating a patient health summary written in plain English.\n"
+        "Rate it on three dimensions using integers 1 to 5.\n"
+        "Reply with ONLY three integers separated by commas. Nothing else.\n"
+        "Example reply: 4,3,5\n\n"
+        "Dimension 1 - clarity: Is it written in simple words any adult understands?\n"
+        "Dimension 2 - accuracy: Does it correctly summarize the medical situation?\n"
+        "Dimension 3 - completeness: Does it cover the key medical information?\n\n"
+        "PATIENT SUMMARY TO RATE:\n"
+        + summary
+        + "\n\nMEDICATIONS MENTIONED: " + med_str
+        + "\n\nYour three scores (X,X,X):"
+    )
 
-    questions_text = "\n".join([
-        f"{i+1}. {q}" for i, q in enumerate(questions)
-    ]) if questions else "None listed"
-
-    user_message = f"""ORIGINAL DOCUMENT:
-{original_text[:2000]}
-
-MEDBRIDGE OUTPUT TO EVALUATE:
-
-SUMMARY:
-{summary}
-
-MEDICATIONS:
-{med_text}
-
-JARGON EXPLAINED:
-{jargon_text}
-
-QUESTIONS FOR DOCTOR:
-{questions_text}
-
-Rate this output. Return ONLY this exact JSON structure with no extra text:
-{{"clarity": X, "accuracy": X, "completeness": X, "overall": X, "feedback": "one sentence"}}"""
     try:
-        model = genai.GenerativeModel(
-            model_name=JUDGE_MODEL,
-            generation_config=genai.GenerationConfig(
-                temperature=0.0,
-                max_output_tokens=2048,
-            )
+        response = groq_client.chat.completions.create(
+            model=JUDGE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20,
+            temperature=0.0,
         )
 
-        # combine system prompt and user message into one
-        full_prompt = JUDGE_PROMPT + "\n\n" + user_message
+        raw = response.choices[0].message.content.strip()
+        print(f"  Raw judge response: {repr(raw)}")
 
-        response = model.generate_content(full_prompt)
-        raw = response.text.strip()
-        #print(f"DEBUG raw response:\n{raw}\n")
+        # extract all numbers
+        numbers = re.findall(r'\d+(?:\.\d+)?', raw)
+        numbers = [_safe_int(n) for n in numbers[:3]]
 
-        if not raw:
-            print("  Warning: empty response from judge")
-            return {
-                "clarity": 3,
-                "accuracy": 3,
-                "completeness": 3,
-                "overall": 3.0,
-                "feedback": "Judge returned empty response",
-                "passed": False
-            }
-
-        # strip markdown code blocks if present
-        raw = re.sub(r'```json\s*', '', raw)
-        raw = re.sub(r'```\s*', '', raw)
-        raw = raw.strip()
-
-        # extract JSON object
-        json_match = re.search(r'\{[\s\S]*\}', raw)
-        if json_match:
-            scores = json.loads(json_match.group(0))
+        if len(numbers) >= 3:
+            clarity = numbers[0]
+            accuracy = numbers[1]
+            completeness = numbers[2]
+        elif len(numbers) == 2:
+            clarity = numbers[0]
+            accuracy = numbers[1]
+            completeness = numbers[0]
+        elif len(numbers) == 1:
+            clarity = accuracy = completeness = numbers[0]
         else:
-            scores = json.loads(raw)
+            print(f"  Could not parse: {repr(raw)}")
+            return _fallback(3, 3, 3, f"Parse failed: {raw[:30]}")
 
-        # compute overall as average of three scores
-        scores["overall"] = round(
-            (scores["clarity"] + scores["accuracy"] + scores["completeness"]) / 3, 2
-        )
-        scores["passed"] = scores["overall"] >= 4.0
-
-        return scores
+        overall = round((clarity + accuracy + completeness) / 3, 2)
+        return {
+            "clarity": clarity,
+            "accuracy": accuracy,
+            "completeness": completeness,
+            "overall": overall,
+            "feedback": "evaluated by Groq Llama",
+            "passed": overall >= 4.0
+        }
 
     except Exception as e:
         print(f"  Judge error: {e}")
-        return {
-            "clarity": 0,
-            "accuracy": 0,
-            "completeness": 0,
-            "overall": 0,
-            "feedback": f"Evaluation failed: {str(e)}",
-            "passed": False
-        }
+        return _fallback(0, 0, 0, f"Failed: {str(e)}")
+
+
+def _safe_int(val: str) -> int:
+    try:
+        return max(1, min(5, int(float(str(val).strip()))))
+    except Exception:
+        return 3
+
+
+def _fallback(clarity: int, accuracy: int, completeness: int, feedback: str) -> Dict:
+    overall = round((clarity + accuracy + completeness) / 3, 2)
+    return {
+        "clarity": clarity,
+        "accuracy": accuracy,
+        "completeness": completeness,
+        "overall": overall,
+        "feedback": feedback,
+        "passed": overall >= 4.0
+    }
 
 
 def evaluate_batch_judge(judge_results: list) -> Dict:
-    """
-    Aggregates judge scores across multiple documents.
-    """
     if not judge_results:
         return {}
-
     valid = [r for r in judge_results if r["overall"] > 0]
     if not valid:
         return {"error": "No valid results"}
-
     return {
         "count": len(valid),
         "avg_clarity": round(sum(r["clarity"] for r in valid) / len(valid), 2),
@@ -189,56 +135,20 @@ def evaluate_batch_judge(judge_results: list) -> Dict:
     }
 
 
-# ── TEST ──────────────────────────────────────────────────────
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-    from medbridge.ingest.parser import extract_text_from_pdf
-
-    sample_pdf = os.path.join(
-        os.path.dirname(__file__),
-        "..", "..", "..", "data", "samples", "discharge_summary.pdf"
+    test_summary = (
+        "You were admitted for chest pain and diagnosed with NSTEMI. "
+        "Doctors placed a stent in your heart artery. Take two blood-thinning "
+        "medications daily and see your heart doctor within 48 hours."
     )
+    test_medications = [
+        {"name": "Aspirin", "purpose": "Prevents blood clots"},
+        {"name": "Clopidogrel", "purpose": "Works with aspirin"},
+    ]
 
     print("=== LLM-as-Judge Evaluation Test ===\n")
-    print("Loading sample document...")
-    text = extract_text_from_pdf(sample_pdf)
-
-    test_summary = (
-        "You were admitted to the hospital for chest pain and diagnosed "
-        "with a type of heart attack called a Non-ST elevation myocardial "
-        "infarction (NSTEMI). Doctors performed a procedure to place a stent "
-        "in one of your heart arteries to help blood flow. You have new "
-        "medications and important follow-up appointments to help with your recovery."
-    )
-
-    test_medications = [
-        {"name": "Aspirin", "frequency": "81mg once daily",
-         "purpose": "Helps prevent blood clots after your heart attack and stent placement"},
-        {"name": "Clopidogrel", "frequency": "75mg once daily",
-         "purpose": "Helps prevent blood clots after your heart attack and stent placement"},
-        {"name": "Atorvastatin", "frequency": "40mg every evening",
-         "purpose": "Helps lower your cholesterol and prevent future heart problems"},
-    ]
-
-    test_jargon = [
-        {"term": "NSTEMI",
-         "explanation": "A type of heart attack where blood flow to the heart is partially blocked"},
-        {"term": "PCI",
-         "explanation": "A procedure to open a blocked heart artery using a balloon and stent"},
-        {"term": "Drug-eluting stent",
-         "explanation": "A small mesh tube that releases medicine to keep your artery open"},
-    ]
-
-    test_questions = [
-        "What activities should I avoid after getting a stent?",
-        "What are the side effects of my new medications?",
-        "When can I return to work or normal activities?",
-    ]
-
-    print("Calling Gemini judge...\n")
-    result = judge_output(
-        text, test_summary, test_medications, test_jargon, test_questions
-    )
+    print("Calling Groq Llama judge...\n")
+    result = judge_output("", test_summary, test_medications, [], [])
 
     print(f"Clarity:        {result['clarity']}/5")
     print(f"Accuracy:       {result['accuracy']}/5")

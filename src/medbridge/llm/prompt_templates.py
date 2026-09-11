@@ -29,7 +29,7 @@ def build_user_message(
     entities_str = "\n".join(entity_lines) if entity_lines else "  - None detected"
 
     # limit text to first 3000 characters to prevent JSON truncation
-    text_preview = text[:3000] if len(text) > 3000 else text
+    text_preview = text[:6000] if len(text) > 6000 else text
 
     message = f"""Analyze this {doc_type} medical document.
 
@@ -56,7 +56,10 @@ YOUR ONLY JOB: Translate the document the user sends you into plain English.
 You must ONLY use information from the document. Never add information from your training data.
 
 STRICT RULES:
-1. Grade 6-8 reading level. Simple words only.
+1. Grade 5-7 reading level. 3 to 5 SHORT sentences.
+   Use words a 12-year-old understands.
+   Cover: what happened, what was done, what medications, what to do next.
+   Each sentence maximum 20 words.
 2. ONLY explain medical abbreviations, Latin phrases, or clinical 
    terminology a non-medical person would not know. Do NOT explain 
    common symptoms like chest pain, shortness of breath, nausea, 
