@@ -16,7 +16,7 @@ export default function App() {
     formData.append("file", file)
 
     try {
-      const response = await fetch("http://localhost:8000/analyze/stream", {
+      const response = await fetch("https://web-production-6a16b1.up.railway.app/analyze/stream", {
         method: "POST",
         body: formData,
       })
