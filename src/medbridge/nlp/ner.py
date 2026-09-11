@@ -27,6 +27,14 @@ import os
 import sys
 from typing import List, Dict
 
+try:
+    import spacy
+    nlp = spacy.load("en_ner_bc5cdr_md")
+    NER_AVAILABLE = True
+except Exception:
+    NER_AVAILABLE = False
+    nlp = None
+
 # load scispaCy medical model once when module is imported
 # loading once is important — loading every call is very slow
 nlp = spacy.load("en_ner_bc5cdr_md")
@@ -53,6 +61,9 @@ def extract_medical_entities(text: str) -> List[Dict]:
             start -> character position where it starts
             end   -> character position where it ends
     """
+    if not NER_AVAILABLE or nlp is None:
+        return []
+
     doc = nlp(text)
 
     entities = []
