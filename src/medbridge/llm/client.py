@@ -41,6 +41,7 @@ load_dotenv()
 
 # configure Gemini
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+print(f"API KEY LOADED: {'YES' if GOOGLE_API_KEY else 'NO - KEY IS MISSING'}")
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in .env file")
 
