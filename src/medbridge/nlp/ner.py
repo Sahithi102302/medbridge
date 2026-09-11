@@ -2,31 +2,14 @@
 ner.py
 ------
 Step 3 of the MedBridge pipeline.
-
-Job: Take clean text from parser.py, find all medical entities in it.
-Returns a list of medical terms with their labels.
-
-Why this exists:
-- Tells Gemini exactly WHICH terms to explain
-- Used to verify Gemini only explains terms that actually
-  exist in the document (hallucination grounding)
-
-Example:
-    Input:  "Patient diagnosed with NSTEMI. Started on
-             clopidogrel 75mg and atorvastatin 40mg."
-
-    Output: [
-        {"term": "NSTEMI",       "label": "DISEASE"},
-        {"term": "clopidogrel",  "label": "CHEMICAL"},
-        {"term": "atorvastatin", "label": "CHEMICAL"},
-    ]
+NER is optional — if scispaCy is not installed, returns empty list.
 """
 
-import spacy
 import os
 import sys
 from typing import List, Dict
 
+# scispaCy is optional — not available in production deployment
 try:
     import spacy
     nlp = spacy.load("en_ner_bc5cdr_md")
@@ -35,11 +18,6 @@ except Exception:
     NER_AVAILABLE = False
     nlp = None
 
-# load scispaCy medical model once when module is imported
-# loading once is important — loading every call is very slow
-nlp = spacy.load("en_ner_bc5cdr_md")
-
-
 # common false positives to ignore
 IGNORE_TERMS = {
     "dob", "mrn", "ppo", "hmo", "eob", "npi",
@@ -47,52 +25,31 @@ IGNORE_TERMS = {
     "non-st", "non", "st"
 }
 
+
 def extract_medical_entities(text: str) -> List[Dict]:
     """
-    Main function. Takes clean text, returns list of medical entities.
-
-    Args:
-        text: clean text string from parser.py
-
-    Returns:
-        list of dicts, each with:
-            term  -> the medical term found
-            label -> DISEASE or CHEMICAL
-            start -> character position where it starts
-            end   -> character position where it ends
+    Extracts medical entities from text.
+    Returns empty list if scispaCy is not available.
     """
     if not NER_AVAILABLE or nlp is None:
         return []
 
     doc = nlp(text)
-
     entities = []
     seen_terms = set()
 
     for ent in doc.ents:
         term = ent.text.strip()
-
-        # skip if too short
         if len(term) < 3:
             continue
-
-        # skip pure numbers
         if term.replace(".", "").replace(",", "").isnumeric():
             continue
-
-        # skip known false positives
         if term.lower() in IGNORE_TERMS:
             continue
-
-        # skip if looks like a person's name
-        # (single letter followed by period and word)
         if len(term.split()) <= 2 and "." in term:
             continue
-
-        # skip duplicates
         if term.lower() in seen_terms:
             continue
-
         seen_terms.add(term.lower())
         entities.append({
             "term": term,
@@ -103,19 +60,12 @@ def extract_medical_entities(text: str) -> List[Dict]:
 
     return entities
 
+
 def get_unique_terms(entities: List[Dict]) -> List[str]:
-    """
-    Returns just the term strings from entity list.
-    Used by hallucination grounding checker later.
-    """
     return [e["term"] for e in entities]
 
 
 def filter_by_label(entities: List[Dict], label: str) -> List[Dict]:
-    """
-    Returns only entities with a specific label.
-    Example: filter_by_label(entities, "DISEASE")
-    """
     return [e for e in entities if e["label"] == label]
 
 
