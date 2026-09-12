@@ -41,7 +41,7 @@ load_dotenv()
 
 # configure Gemini
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-print(f"API KEY LOADED: {'YES' if GOOGLE_API_KEY else 'NO - KEY IS MISSING'}")
+#print(f"API KEY LOADED: {'YES' if GOOGLE_API_KEY else 'NO - KEY IS MISSING'}")
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in .env file")
 
@@ -49,7 +49,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 
 # use gemini-1.5-flash — fast and free tier friendly
 # easy to switch to gemini-1.5-pro for better quality
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "models/gemini-2.5-flash"
 
 # generation config — temperature 0 for consistent output
 GENERATION_CONFIG = genai.GenerationConfig(
