@@ -49,7 +49,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 
 # use gemini-1.5-flash — fast and free tier friendly
 # easy to switch to gemini-1.5-pro for better quality
-MODEL_NAME = "models/gemini-2.5-flash"
+MODEL_NAME = "gpt-4o-mini"
 
 # generation config — temperature 0 for consistent output
 GENERATION_CONFIG = genai.GenerationConfig(
@@ -90,25 +90,21 @@ def extract_json_from_response(text: str) -> str:
 )
 def call_gemini(system_prompt: str, user_message: str) -> str:
     """
-    Calls the Gemini API with retry logic.
-    Retries up to 3 times with exponential backoff
-    if the API fails or times out.
-
-    Args:
-        system_prompt: the system instructions
-        user_message:  the document text and context
-
-    Returns:
-        raw text response from Gemini
+    Calls OpenAI API - works globally without geographic restrictions.
     """
-    model = genai.GenerativeModel(
-        model_name=MODEL_NAME,
-        system_instruction=system_prompt,
-        generation_config=GENERATION_CONFIG,
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ],
+        temperature=0,
+        max_tokens=4000,
     )
-
-    response = model.generate_content(user_message)
-    return response.text
+    return response.choices[0].message.content
 
 
 def analyze_document(
